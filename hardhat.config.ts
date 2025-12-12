@@ -18,8 +18,13 @@ const config: HardhatUserConfig = {
   },
   networks: {
     sepolia: {
+<<<<<<< HEAD
       url: process.env.SEPOLIA_RPC_URL || "https://sepolia.drpc.org",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+=======
+      url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : ["7d92d7f755e746cba649b3e22bdab29d428078fb4d993280b79fb138c0a94554"],
+>>>>>>> 5175f1f88449627993d74a1cab7c15099a0d7ac1
       chainId: 11155111,
     },
   },

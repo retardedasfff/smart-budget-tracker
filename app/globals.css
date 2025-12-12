@@ -32,6 +32,7 @@ body {
   }
 }
 
+<<<<<<< HEAD
 /* Pixel art styling */
 .pixel-art {
   image-rendering: pixelated;
@@ -41,6 +42,8 @@ body {
   letter-spacing: 2px;
 }
 
+=======
+>>>>>>> 5175f1f88449627993d74a1cab7c15099a0d7ac1
 /* Smooth animations */
 @keyframes fadeIn {
   from {
@@ -57,4 +60,7 @@ body {
   animation: fadeIn 0.5s ease-out;
 }
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 5175f1f88449627993d74a1cab7c15099a0d7ac1
