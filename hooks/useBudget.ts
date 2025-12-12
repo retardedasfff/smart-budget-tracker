@@ -23,19 +23,18 @@ export function useBudget() {
   const [transactionHash, setTransactionHash] = useState<`0x${string}` | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Safely get contract address (only on client side)
+  // get contract address (only on client side)
   let contractAddress: `0x${string}` | undefined;
   try {
     if (typeof window !== "undefined") {
       contractAddress = getBudgetManagerAddress();
     }
   } catch (error: any) {
-    console.error("Failed to get contract address:", error);
-    console.error("Environment variable NEXT_PUBLIC_BUDGET_MANAGER_ADDRESS:", process.env.NEXT_PUBLIC_BUDGET_MANAGER_ADDRESS);
+    console.error("failed to get contract address:", error);
     contractAddress = undefined;
   }
 
-  // Read total users
+  // read total users count
   const { data: totalUsers } = useReadContract({
     address: contractAddress || undefined,
     abi: BUDGET_MANAGER_ABI,
@@ -45,7 +44,7 @@ export function useBudget() {
     },
   });
 
-  // Get user transactions
+  // get user's transactions
   const { data: userTransactionIds, refetch: refetchUserTransactions } = useReadContract({
     address: contractAddress || undefined,
     abi: BUDGET_MANAGER_ABI,
@@ -56,7 +55,7 @@ export function useBudget() {
     },
   });
 
-  // Get shared budgets
+  // get shared budgets
   const { data: sharedBudgets, refetch: refetchSharedBudgets } = useReadContract({
     address: contractAddress || undefined,
     abi: BUDGET_MANAGER_ABI,
@@ -68,24 +67,23 @@ export function useBudget() {
   });
 
 
-  // Write contract
+  // write to contract
   const { writeContract, data: hash, isPending, isError, error, reset } = useWriteContract();
 
-  // Wait for transaction
+  // wait for tx to confirm
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash: hash || undefined,
   });
 
-  // Update transaction hash when writeContract returns hash
+  // update tx hash when we get it
   useEffect(() => {
     if (hash) {
-      console.log("Transaction hash received:", hash);
       setTransactionHash(hash);
       setIsLoading(false);
     }
   }, [hash]);
 
-  // Handle write errors
+  // handle write errors
   useEffect(() => {
     if (error) {
       console.error("Write contract error:", error);
@@ -107,7 +105,6 @@ export function useBudget() {
       console.error("Contract address not available");
       throw new Error("Contract address not configured");
     }
-    console.log("Adding transaction:", { type, amount, tag, description, contractAddress });
     setIsLoading(true);
     reset();
     writeContract({
@@ -127,7 +124,6 @@ export function useBudget() {
   ) => {
     if (!address) throw new Error("Wallet not connected");
     if (!contractAddress) throw new Error("Contract address not configured");
-    console.log("Updating transaction:", { id, type, amount, tag, description });
     setIsLoading(true);
     reset();
     writeContract({
@@ -141,7 +137,6 @@ export function useBudget() {
   const deleteTransaction = (id: bigint) => {
     if (!address) throw new Error("Wallet not connected");
     if (!contractAddress) throw new Error("Contract address not configured");
-    console.log("Deleting transaction:", id);
     setIsLoading(true);
     reset();
     writeContract({
@@ -155,7 +150,6 @@ export function useBudget() {
   const shareBudget = (sharedWith: `0x${string}`) => {
     if (!address) throw new Error("Wallet not connected");
     if (!contractAddress) throw new Error("Contract address not configured");
-    console.log("Sharing budget with:", sharedWith);
     setIsLoading(true);
     reset();
     writeContract({
@@ -169,7 +163,6 @@ export function useBudget() {
   const revokeAccess = (user: `0x${string}`) => {
     if (!address) throw new Error("Wallet not connected");
     if (!contractAddress) throw new Error("Contract address not configured");
-    console.log("Revoking access for:", user);
     setIsLoading(true);
     reset();
     writeContract({
@@ -180,7 +173,7 @@ export function useBudget() {
     });
   };
 
-  // Reset transaction hash when transaction completes
+  // reset tx hash when transaction completes
   useEffect(() => {
     if (isSuccess && hash) {
       setTransactionHash(null);
