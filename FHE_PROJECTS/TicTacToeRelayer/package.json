@@ -1,0 +1,44 @@
+{
+  "name": "tic-tac-toe-relayer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "deploy": "npx hardhat run scripts/deploy.ts --network sepolia",
+    "deploy:relayer": "npx hardhat run scripts/deploy.ts --network sepolia --contract TicTacToeRelayer",
+    "deploy:mock": "npx hardhat run scripts/deploy.ts --network sepolia --contract TicTacToeMock"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.51.0",
+    "@types/node": "22.7.4",
+    "@types/react": "18.3.11",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "10.4.20",
+    "connectkit": "^1.9.1",
+    "encoding": "^0.1.13",
+    "lucide-react": "^0.441.0",
+    "next": "14.2.7",
+    "postcss": "8.4.47",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "3.4.13",
+    "typescript": "5.6.2",
+    "viem": "^2.21.0",
+    "wagmi": "^2.12.1",
+    "@zama-fhe/relayer-sdk": "^0.1.0",
+    "fhevm-contracts": "https://github.com/zama-ai/fhevm-contracts/archive/refs/tags/v0.2.4.tar.gz",
+    "fhevm": "https://github.com/zama-ai/fhevm/archive/refs/tags/v0.10.3.tar.gz"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@wagmi/connectors": "^4.1.25",
+    "hardhat": "^2.22.6",
+    "pino-pretty": "^10.3.0",
+    "@react-native-async-storage/async-storage": "^1.24.0",
+    "ts-node": "^10.9.2"
+  }
+}
+

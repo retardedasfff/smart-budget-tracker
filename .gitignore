@@ -45,3 +45,6 @@ deployment-info.json
 CONTRACT_ADDRESSES.txt
 FINAL_ADDRESSES.txt
 *.bat
+
+# Local Netlify folder
+.netlify
