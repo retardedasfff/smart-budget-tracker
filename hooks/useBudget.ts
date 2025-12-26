@@ -4,10 +4,11 @@ import { useAccount, useReadContract, useWriteContract, useWaitForTransactionRec
 import { parseAbi } from "viem";
 import { getBudgetManagerAddress } from "@/utils/address";
 import { useState, useEffect } from "react";
+import { initFHERelayer, encryptAmount, setContractAddress, storeOriginalAmount } from "@/lib/fheEncryption";
 
 const BUDGET_MANAGER_ABI = parseAbi([
-  "function addTransaction(uint8 _type, uint256 _amount, string memory _tag, string memory _description) external",
-  "function updateTransaction(uint256 _id, uint8 _type, uint256 _amount, string memory _tag, string memory _description) external",
+  "function addTransaction(uint8 _type, bytes32 _encryptedAmount, string memory _tag, string memory _description) external",
+  "function updateTransaction(uint256 _id, uint8 _type, bytes32 _encryptedAmount, string memory _tag, string memory _description) external",
   "function deleteTransaction(uint256 _id) external",
   "function shareBudget(address _sharedWith) external",
   "function revokeAccess(address _user) external",
@@ -15,13 +16,15 @@ const BUDGET_MANAGER_ABI = parseAbi([
   "function getSharedBudgets(address _user) external view returns (address[] memory)",
   "function totalUsers() external view returns (uint256)",
   "function hasAccess(address _owner, address _user) external view returns (bool)",
-  "function transactions(uint256) external view returns (uint256 id, uint8 transactionType, uint256 amount, string memory tag, string memory description, uint256 timestamp, address owner, bool isDeleted)",
+  "function getTransactionMetadata(uint256 _id) external view returns (uint256 id, uint8 transactionType, string memory tag, string memory description, uint256 timestamp, address owner, bool isDeleted)",
+  "function getEncryptedAmount(uint256 _id) external view returns (bytes32)",
 ]);
 
 export function useBudget() {
   const { address } = useAccount();
   const [transactionHash, setTransactionHash] = useState<`0x${string}` | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRelayerReady, setIsRelayerReady] = useState(false);
 
   // get contract address (only on client side)
   let contractAddress: `0x${string}` | undefined;
@@ -33,6 +36,22 @@ export function useBudget() {
     console.error("failed to get contract address:", error);
     contractAddress = undefined;
   }
+
+  // Initialize FHE relayer
+  useEffect(() => {
+    if (contractAddress && typeof window !== 'undefined') {
+      setContractAddress(contractAddress);
+      initFHERelayer(contractAddress)
+        .then(() => {
+          setIsRelayerReady(true);
+          console.log('FHE relayer initialized for budget tracker');
+        })
+        .catch((error) => {
+          console.error('Failed to initialize FHE relayer:', error);
+          setIsRelayerReady(false);
+        });
+    }
+  }, [contractAddress]);
 
   // read total users count
   const { data: totalUsers } = useReadContract({
@@ -66,7 +85,6 @@ export function useBudget() {
     },
   });
 
-
   // write to contract
   const { writeContract, data: hash, isPending, isError, error, reset } = useWriteContract();
 
@@ -91,9 +109,9 @@ export function useBudget() {
     }
   }, [error]);
 
-  const addTransaction = (
+  const addTransaction = async (
     type: 0 | 1, // 0 = EXPENSE, 1 = INCOME
-    amount: bigint,
+    amount: number, // Changed from bigint to number for FHE encryption
     tag: string,
     description: string
   ) => {
@@ -105,33 +123,65 @@ export function useBudget() {
       console.error("Contract address not available");
       throw new Error("Contract address not configured");
     }
+    if (!isRelayerReady) {
+      throw new Error("FHE relayer not ready. Please wait...");
+    }
+
     setIsLoading(true);
     reset();
-    writeContract({
-      address: contractAddress,
-      abi: BUDGET_MANAGER_ABI,
-      functionName: "addTransaction",
-      args: [type, amount, tag, description],
-    });
+    
+    try {
+      // Encrypt amount using FHE
+      console.log(`[useBudget] Encrypting amount: ${amount}`);
+      const encryptedAmount = await encryptAmount(amount, address, contractAddress);
+      console.log(`[useBudget] Encrypted amount (bytes32): ${encryptedAmount}`);
+      
+      writeContract({
+        address: contractAddress,
+        abi: BUDGET_MANAGER_ABI,
+        functionName: "addTransaction",
+        args: [type, encryptedAmount as `0x${string}`, tag, description],
+        gas: 1000000n,
+      });
+    } catch (error: any) {
+      console.error("Error in addTransaction:", error);
+      setIsLoading(false);
+      throw error;
+    }
   };
 
-  const updateTransaction = (
+  const updateTransaction = async (
     id: bigint,
     type: 0 | 1,
-    amount: bigint,
+    amount: number, // Changed from bigint to number for FHE encryption
     tag: string,
     description: string
   ) => {
     if (!address) throw new Error("Wallet not connected");
     if (!contractAddress) throw new Error("Contract address not configured");
+    if (!isRelayerReady) {
+      throw new Error("FHE relayer not ready. Please wait...");
+    }
+
     setIsLoading(true);
     reset();
-    writeContract({
-      address: contractAddress,
-      abi: BUDGET_MANAGER_ABI,
-      functionName: "updateTransaction",
-      args: [id, type, amount, tag, description],
-    });
+    
+    try {
+      // Encrypt amount using FHE
+      const encryptedAmount = await encryptAmount(amount, address, contractAddress);
+      
+      writeContract({
+        address: contractAddress,
+        abi: BUDGET_MANAGER_ABI,
+        functionName: "updateTransaction",
+        args: [id, type, encryptedAmount as `0x${string}`, tag, description],
+        gas: 1000000n,
+      });
+    } catch (error: any) {
+      console.error("Error in updateTransaction:", error);
+      setIsLoading(false);
+      throw error;
+    }
   };
 
   const deleteTransaction = (id: bigint) => {
@@ -144,6 +194,7 @@ export function useBudget() {
       abi: BUDGET_MANAGER_ABI,
       functionName: "deleteTransaction",
       args: [id],
+      gas: 500000n,
     });
   };
 
@@ -157,6 +208,7 @@ export function useBudget() {
       abi: BUDGET_MANAGER_ABI,
       functionName: "shareBudget",
       args: [sharedWith],
+      gas: 500000n,
     });
   };
 
@@ -170,18 +222,21 @@ export function useBudget() {
       abi: BUDGET_MANAGER_ABI,
       functionName: "revokeAccess",
       args: [user],
+      gas: 500000n,
     });
   };
 
-  // reset tx hash when transaction completes
+  // Store original amounts after successful transaction
   useEffect(() => {
-    if (isSuccess && hash) {
+    if (isSuccess && hash && userTransactionIds && userTransactionIds.length > 0) {
+      // Transaction was successful, amounts are already stored via storeOriginalAmount
+      // This is handled in the component that calls addTransaction/updateTransaction
       setTransactionHash(null);
       setIsLoading(false);
       refetchUserTransactions();
       refetchSharedBudgets();
     }
-  }, [isSuccess, hash, refetchUserTransactions, refetchSharedBudgets]);
+  }, [isSuccess, hash, userTransactionIds, refetchUserTransactions, refetchSharedBudgets]);
 
   return {
     addTransaction,
@@ -197,6 +252,7 @@ export function useBudget() {
     isError,
     error,
     contractAddress,
+    isRelayerReady,
+    refetchUserTransactions,
   };
 }
-

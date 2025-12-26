@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useBudget } from "@/hooks/useBudget";
 import { useTransaction, Transaction } from "@/hooks/useTransaction";
 import { Plus, Edit, Trash2, ArrowLeft } from "lucide-react";
+import { storeOriginalAmount } from "@/lib/fheEncryption";
 
 export default function BudgetPage() {
   const { address, isConnected } = useAccount();
@@ -22,6 +23,9 @@ export default function BudgetPage() {
     isSuccess,
     isError,
     error,
+    isRelayerReady,
+    contractAddress,
+    refetchUserTransactions,
   } = useBudget();
 
   // Handle errors from useBudget
@@ -37,6 +41,7 @@ export default function BudgetPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showShareForm, setShowShareForm] = useState(false);
   const [shareAddress, setShareAddress] = useState("");
+  const [pendingAmount, setPendingAmount] = useState<number | null>(null);
   const [formData, setFormData] = useState({
     type: "0" as "0" | "1",
     amount: "",
@@ -46,16 +51,36 @@ export default function BudgetPage() {
 
   // Transactions will be loaded via TransactionItem components
 
-  // Reset form after successful transaction
+  // Reset form after successful transaction and store original amount
   useEffect(() => {
-    if (isSuccess) {
-      setFormData({ type: "0", amount: "", tag: "", description: "" });
-      setShowAddForm(false);
-      setEditingId(null);
+    if (isSuccess && pendingAmount !== null) {
+      // Refetch transactions to get the latest ID, then store the amount
+      const storeAmount = async () => {
+        try {
+          const result = await refetchUserTransactions();
+          const updatedIds = result.data as bigint[] | undefined;
+          
+          if (updatedIds && updatedIds.length > 0) {
+            // Store original amount for the latest transaction (assuming it's the last one - newest transaction)
+            const latestTransactionId = updatedIds[updatedIds.length - 1];
+            console.log(`[BudgetPage] Storing original amount ${pendingAmount} for transaction ${latestTransactionId}`);
+            storeOriginalAmount(Number(latestTransactionId), pendingAmount);
+          }
+        } catch (err) {
+          console.error("Error refetching transactions:", err);
+        } finally {
+          setPendingAmount(null);
+          setFormData({ type: "0", amount: "", tag: "", description: "" });
+          setShowAddForm(false);
+          setEditingId(null);
+        }
+      };
+      
+      storeAmount();
     }
-  }, [isSuccess]);
+  }, [isSuccess, pendingAmount, refetchUserTransactions]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!address) {
       alert("Please connect your wallet");
@@ -73,11 +98,15 @@ export default function BudgetPage() {
     }
 
     try {
-      const amount = BigInt(Math.floor(parseFloat(formData.amount) * 100)); // Convert to cents/wei
+      const amount = parseFloat(formData.amount); // Keep as number for FHE encryption
       if (editingId !== null) {
-        updateTransaction(editingId, parseInt(formData.type) as 0 | 1, amount, formData.tag, formData.description);
+        await updateTransaction(editingId, parseInt(formData.type) as 0 | 1, amount, formData.tag, formData.description);
+        // Store original amount in localStorage
+        storeOriginalAmount(Number(editingId), amount);
       } else {
-        addTransaction(parseInt(formData.type) as 0 | 1, amount, formData.tag, formData.description);
+        // Store amount temporarily - will be saved with transaction ID after success
+        setPendingAmount(amount);
+        await addTransaction(parseInt(formData.type) as 0 | 1, amount, formData.tag, formData.description);
       }
     } catch (error: any) {
       console.error("Error submitting transaction:", error);
@@ -148,14 +177,12 @@ export default function BudgetPage() {
             </div>
             <div className="flex items-center space-x-3">
               <ConnectKitButton />
-              {isConnected && (
-                <button
-                  onClick={() => disconnect()}
-                  className="px-4 py-2 text-sm font-semibold text-yellow-500 border-2 border-yellow-500 rounded-md hover:bg-yellow-500 hover:text-black transition whitespace-nowrap"
-                >
-                  Disconnect
-                </button>
-              )}
+              <button
+                onClick={() => disconnect()}
+                className="px-4 py-2 text-sm font-semibold text-yellow-500 border-2 border-yellow-500 rounded-md hover:bg-yellow-500 hover:text-black transition whitespace-nowrap"
+              >
+                Disconnect Wallet
+              </button>
             </div>
           </div>
         </div>
@@ -285,13 +312,13 @@ export default function BudgetPage() {
                 />
               </div>
               <div className="flex space-x-4">
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="px-4 py-2 bg-yellow-500 text-black rounded-lg hover:bg-yellow-400 transition disabled:opacity-50 font-semibold"
-                >
-                  {isLoading ? "Processing..." : editingId ? "Update" : "Add"}
-                </button>
+            <button
+              type="submit"
+              disabled={isLoading || !isRelayerReady}
+              className="px-4 py-2 bg-yellow-500 text-black rounded-lg hover:bg-yellow-400 transition disabled:opacity-50 font-semibold"
+            >
+              {!isRelayerReady ? "Initializing FHE..." : isLoading ? "Processing..." : editingId ? "Update" : "Add"}
+            </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -307,10 +334,30 @@ export default function BudgetPage() {
           </div>
         )}
 
+        {!isRelayerReady && (
+          <div className="bg-gray-900 border-2 border-yellow-500 rounded-lg shadow-lg p-4 mb-6">
+            <p className="text-yellow-400">Initializing FHE encryption system... Please wait.</p>
+          </div>
+        )}
+
+        {/* Contract Address Info */}
+        <div className="bg-gray-900 border-2 border-yellow-500 rounded-lg shadow-lg p-4 mb-6">
+          <p className="text-sm text-yellow-400">
+            Contract: <span className="font-mono text-yellow-500">{contractAddress || "Not set"}</span>
+          </p>
+        </div>
+        
         <div className="bg-gray-900 border-2 border-yellow-500 rounded-lg shadow-lg p-6">
           <h3 className="text-xl font-semibold text-yellow-500 mb-4">
-            Your Transactions
+            Your Transactions {userTransactionIds && `(${userTransactionIds.length})`}
           </h3>
+          {(() => {
+            // Debug logging
+            if (userTransactionIds) {
+              console.log('[BudgetPage] userTransactionIds:', userTransactionIds);
+            }
+            return null;
+          })()}
           {userTransactionIds && userTransactionIds.length > 0 ? (
             <div className="space-y-4">
               {userTransactionIds.map((id) => (
@@ -321,7 +368,7 @@ export default function BudgetPage() {
                     setEditingId(tx.id);
                     setFormData({
                       type: tx.transactionType.toString() as "0" | "1",
-                      amount: (Number(tx.amount) / 100).toFixed(2),
+                      amount: tx.amount !== null ? tx.amount.toFixed(2) : "0.00",
                       tag: tx.tag,
                       description: tx.description,
                     });
@@ -349,17 +396,31 @@ function TransactionItem({
   onEdit: (tx: Transaction) => void;
   onDelete: (id: bigint) => void;
 }) {
-  const { transaction, isLoading } = useTransaction(transactionId);
+  const { transaction, isLoading, error } = useTransaction(transactionId);
+
+  // Debug logging
+  useEffect(() => {
+    console.log(`[TransactionItem] ID: ${transactionId}, isLoading: ${isLoading}, transaction:`, transaction, 'error:', error);
+  }, [transactionId, isLoading, transaction, error]);
 
   if (isLoading) {
-    return <div className="p-4 border-2 border-yellow-500 rounded-lg bg-gray-900 text-yellow-400">Loading...</div>;
+    return <div className="p-4 border-2 border-yellow-500 rounded-lg bg-gray-900 text-yellow-400">Loading transaction {transactionId.toString()}...</div>;
+  }
+
+  if (error) {
+    console.error(`[TransactionItem] Error loading transaction ${transactionId}:`, error);
   }
 
   if (!transaction || transaction.isDeleted) {
+    if (!transaction) {
+      console.warn(`[TransactionItem] Transaction ${transactionId} is null`);
+    } else if (transaction.isDeleted) {
+      console.log(`[TransactionItem] Transaction ${transactionId} is deleted, skipping`);
+    }
     return null;
   }
 
-  const amount = Number(transaction.amount) / 100;
+  const amount = transaction.amount !== null ? transaction.amount : 0;
   const isExpense = transaction.transactionType === 0;
 
   return (
@@ -371,6 +432,7 @@ function TransactionItem({
           </span>
           <span className="font-semibold text-yellow-500">
             {isExpense ? "-" : "+"}${amount.toFixed(2)}
+            {transaction.amount === null && <span className="text-yellow-500/60 text-xs ml-2">(encrypted)</span>}
           </span>
           <span className="text-yellow-400">{transaction.tag}</span>
         </div>

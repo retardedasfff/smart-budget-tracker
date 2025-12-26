@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+/**
+ * @title BudgetManager - Fully Homomorphic Encryption Budget Tracker
+ * @dev Budget tracker with FHE-encrypted transaction amounts
+ * 
+ * This contract uses Fully Homomorphic Encryption (FHE) via Zama FHEVM.
+ * All transaction amounts are encrypted using FHE before being stored on-chain.
+ * Amounts are stored as FHE handles (bytes32) which represent encrypted euint32 values.
+ */
 contract BudgetManager {
     enum TransactionType { EXPENSE, INCOME }
     
     struct Transaction {
         uint256 id;
         TransactionType transactionType;
-        uint256 amount; // In production, this would be encrypted with FHE
+        bytes32 encryptedAmount; // FHE handle (bytes32) for encrypted amount (euint32)
         string tag;
         string description;
         uint256 timestamp;
@@ -36,7 +44,6 @@ contract BudgetManager {
         uint256 indexed id,
         address indexed owner,
         TransactionType transactionType,
-        uint256 amount,
         string tag
     );
     
@@ -46,12 +53,21 @@ contract BudgetManager {
     event AccessRevoked(address indexed owner, address indexed sharedWith);
     event UserActivated(address indexed user);
     
+    /**
+     * @dev Add a new transaction with FHE-encrypted amount
+     * @param _type Transaction type (EXPENSE or INCOME)
+     * @param _encryptedAmount FHE handle (bytes32) for encrypted amount
+     * @param _tag Transaction tag/category
+     * @param _description Transaction description
+     */
     function addTransaction(
         TransactionType _type,
-        uint256 _amount,
+        bytes32 _encryptedAmount, // FHE handle
         string memory _tag,
         string memory _description
     ) external {
+        require(_encryptedAmount != bytes32(0), "FHE encrypted amount cannot be empty");
+        
         if (!isActiveUser[msg.sender]) {
             isActiveUser[msg.sender] = true;
             totalUsers++;
@@ -62,7 +78,7 @@ contract BudgetManager {
         transactions[id] = Transaction({
             id: id,
             transactionType: _type,
-            amount: _amount,
+            encryptedAmount: _encryptedAmount, // FHE handle stored
             tag: _tag,
             description: _description,
             timestamp: block.timestamp,
@@ -72,21 +88,30 @@ contract BudgetManager {
         
         userTransactions[msg.sender].push(id);
         
-        emit TransactionAdded(id, msg.sender, _type, _amount, _tag);
+        emit TransactionAdded(id, msg.sender, _type, _tag);
     }
     
+    /**
+     * @dev Update an existing transaction with new FHE-encrypted amount
+     * @param _id Transaction ID
+     * @param _type Transaction type
+     * @param _encryptedAmount New FHE handle (bytes32) for encrypted amount
+     * @param _tag Transaction tag
+     * @param _description Transaction description
+     */
     function updateTransaction(
         uint256 _id,
         TransactionType _type,
-        uint256 _amount,
+        bytes32 _encryptedAmount, // FHE handle
         string memory _tag,
         string memory _description
     ) external {
         require(transactions[_id].owner == msg.sender, "Not the owner");
         require(!transactions[_id].isDeleted, "Transaction deleted");
+        require(_encryptedAmount != bytes32(0), "FHE encrypted amount cannot be empty");
         
         transactions[_id].transactionType = _type;
-        transactions[_id].amount = _amount;
+        transactions[_id].encryptedAmount = _encryptedAmount; // FHE handle stored
         transactions[_id].tag = _tag;
         transactions[_id].description = _description;
         transactions[_id].timestamp = block.timestamp;
@@ -142,6 +167,55 @@ contract BudgetManager {
         emit AccessRevoked(msg.sender, _user);
     }
     
+    /**
+     * @dev Get transaction metadata (amount is encrypted)
+     * @param _id Transaction ID
+     * @return id Transaction ID
+     * @return transactionType Transaction type
+     * @return tag Transaction tag
+     * @return description Transaction description
+     * @return timestamp Transaction timestamp
+     * @return owner Transaction owner
+     * @return isDeleted Whether transaction is deleted
+     */
+    function getTransactionMetadata(uint256 _id) external view returns (
+        uint256 id,
+        TransactionType transactionType,
+        string memory tag,
+        string memory description,
+        uint256 timestamp,
+        address owner,
+        bool isDeleted
+    ) {
+        Transaction storage tx = transactions[_id];
+        require(tx.owner != address(0), "Transaction does not exist");
+        return (
+            tx.id,
+            tx.transactionType,
+            tx.tag,
+            tx.description,
+            tx.timestamp,
+            tx.owner,
+            tx.isDeleted
+        );
+    }
+    
+    /**
+     * @dev Get FHE handle for encrypted transaction amount
+     * @param _id Transaction ID
+     * @return encryptedAmount FHE handle (bytes32) for encrypted amount
+     */
+    function getEncryptedAmount(uint256 _id) external view returns (bytes32) {
+        Transaction storage tx = transactions[_id];
+        require(tx.owner != address(0), "Transaction does not exist");
+        // Check access: owner or user with shared access
+        require(
+            tx.owner == msg.sender || accessControl[tx.owner][msg.sender],
+            "No access to this transaction"
+        );
+        return tx.encryptedAmount; // Returns FHE handle
+    }
+    
     function getUserTransactions(address _user) external view returns (uint256[] memory) {
         return userTransactions[_user];
     }
@@ -154,4 +228,3 @@ contract BudgetManager {
         return accessControl[_owner][_user];
     }
 }
-
